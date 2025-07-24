@@ -1,0 +1,450 @@
+Help on class LightRAG in module lightrag.lightrag:
+
+class LightRAG(builtins.object)
+ |  LightRAG(working_dir: 'str' = './rag_storage', kv_storage: 'str' = 'JsonKVStorage', vector_storage: 'str' = 'NanoVectorDBStorage', graph_storage: 'str' = 'NetworkXStorage', doc_status_storage: 'str' = 'JsonDocStatusStorage', workspace: 'str' = <factory>, log_level: 'int | None' = None, log_file_path: 'str | None' = None, top_k: 'int' = 40, chunk_top_k: 'int' = 10, max_entity_tokens: 'int' = 10000, max_relation_tokens: 'int' = 10000, max_total_tokens: 'int' = 32000, cosine_threshold: 'int' = 0.2, related_chunk_number: 'int' = 10, entity_extract_max_gleaning: 'int' = 1, force_llm_summary_on_merge: 'int' = 4, chunk_token_size: 'int' = 1200, chunk_overlap_token_size: 'int' = 100, tokenizer: 'Optional[Tokenizer]' = None, tiktoken_model_name: 'str' = 'gpt-4o-mini', chunking_func: 'Callable[[Tokenizer, str, Optional[str], bool, int, int], List[Dict[str, Any]]]' = <factory>, embedding_func: 'EmbeddingFunc | None' = None, embedding_batch_num: 'int' = 10, embedding_func_max_async: 'int' = 8, embedding_cache_config: 'dict[str, Any]' = <factory>, llm_model_func: 'Callable[..., object] | None' = None, llm_model_name: 'str' = 'gpt-4o-mini', llm_model_max_token_size: 'int' = 32000, llm_model_max_async: 'int' = 4, llm_model_kwargs: 'dict[str, Any]' = <factory>, rerank_model_func: 'Callable[..., object] | None' = None, vector_db_storage_cls_kwargs: 'dict[str, Any]' = <factory>, enable_llm_cache: 'bool' = True, enable_llm_cache_for_entity_extract: 'bool' = True, max_parallel_insert: 'int' = 2, max_graph_nodes: 'int' = 1000, addon_params: 'dict[str, Any]' = <factory>, auto_manage_storages_states: 'bool' = True, convert_response_to_json_func: 'Callable[[str], dict[str, Any]]' = <factory>, cosine_better_than_threshold: 'float' = 0.2, _storages_status: 'StoragesStatus' = <StoragesStatus.NOT_CREATED: 'not_created'>) -> None
+ |
+ |  LightRAG: Simple and Fast Retrieval-Augmented Generation.
+ |
+ |  Methods defined here:
+ |
+ |  __del__(self)
+ |
+ |  __eq__(self, other)
+ |      Return self==value.
+ |
+ |  __init__(self, working_dir: 'str' = './rag_storage', kv_storage: 'str' = 'JsonKVStorage', vector_storage: 'str' = 'NanoVectorDBStorage', graph_storage: 'str' = 'NetworkXStorage', doc_status_storage: 'str' = 'JsonDocStatusStorage', workspace: 'str' = <factory>, log_level: 'int | None' = None, log_file_path: 'str | None' = None, top_k: 'int' = 40, chunk_top_k: 'int' = 10, max_entity_tokens: 'int' = 10000, max_relation_tokens: 'int' = 10000, max_total_tokens: 'int' = 32000, cosine_threshold: 'int' = 0.2, related_chunk_number: 'int' = 10, entity_extract_max_gleaning: 'int' = 1, force_llm_summary_on_merge: 'int' = 4, chunk_token_size: 'int' = 1200, chunk_overlap_token_size: 'int' = 100, tokenizer: 'Optional[Tokenizer]' = None, tiktoken_model_name: 'str' = 'gpt-4o-mini', chunking_func: 'Callable[[Tokenizer, str, Optional[str], bool, int, int], List[Dict[str, Any]]]' = <factory>, embedding_func: 'EmbeddingFunc | None' = None, embedding_batch_num: 'int' = 10, embedding_func_max_async: 'int' = 8, embedding_cache_config: 'dict[str, Any]' = <factory>, llm_model_func: 'Callable[..., object] | None' = None, llm_model_name: 'str' = 'gpt-4o-mini', llm_model_max_token_size: 'int' = 32000, llm_model_max_async: 'int' = 4, llm_model_kwargs: 'dict[str, Any]' = <factory>, rerank_model_func: 'Callable[..., object] | None' = None, vector_db_storage_cls_kwargs: 'dict[str, Any]' = <factory>, enable_llm_cache: 'bool' = True, enable_llm_cache_for_entity_extract: 'bool' = True, max_parallel_insert: 'int' = 2, max_graph_nodes: 'int' = 1000, addon_params: 'dict[str, Any]' = <factory>, auto_manage_storages_states: 'bool' = True, convert_response_to_json_func: 'Callable[[str], dict[str, Any]]' = <factory>, cosine_better_than_threshold: 'float' = 0.2, _storages_status: 'StoragesStatus' = <StoragesStatus.NOT_CREATED: 'not_created'>) -> None
+ |      Initialize self.  See help(type(self)) for accurate signature.
+ |
+ |  __post_init__(self)
+ |
+ |  __repr__(self)
+ |      Return repr(self).
+ |
+ |  async aclear_cache(self, modes: 'list[str] | None' = None) -> 'None'
+ |      Clear cache data from the LLM response cache storage.
+ |
+ |      Args:
+ |          modes (list[str] | None): Modes of cache to clear. Options: ["default", "naive", "local", "global", "hybrid", "mix"].
+ |                           "default" represents extraction cache.
+ |                           If None, clears all cache.
+ |
+ |      Example:
+ |          # Clear all cache
+ |          await rag.aclear_cache()
+ |
+ |          # Clear local mode cache
+ |          await rag.aclear_cache(modes=["local"])
+ |
+ |          # Clear extraction cache
+ |          await rag.aclear_cache(modes=["default"])
+ |
+ |  async acreate_entity(self, entity_name: 'str', entity_data: 'dict[str, Any]') -> 'dict[str, Any]'
+ |      Asynchronously create a new entity.
+ |
+ |      Creates a new entity in the knowledge graph and adds it to the vector database.
+ |
+ |      Args:
+ |          entity_name: Name of the new entity
+ |          entity_data: Dictionary containing entity attributes, e.g. {"description": "description", "entity_type": "type"}
+ |
+ |      Returns:
+ |          Dictionary containing created entity information
+ |
+ |  async acreate_relation(self, source_entity: 'str', target_entity: 'str', relation_data: 'dict[str, Any]') -> 'dict[str, Any]'
+ |      Asynchronously create a new relation between entities.
+ |
+ |      Creates a new relation (edge) in the knowledge graph and adds it to the vector database.
+ |
+ |      Args:
+ |          source_entity: Name of the source entity
+ |          target_entity: Name of the target entity
+ |          relation_data: Dictionary containing relation attributes, e.g. {"description": "description", "keywords": "keywords"}
+ |
+ |      Returns:
+ |          Dictionary containing created relation information
+ |
+ |  async adelete_by_doc_id(self, doc_id: 'str') -> 'DeletionResult'
+ |      Delete a document and all its related data, including chunks, graph elements, and cached entries.
+ |
+ |      This method orchestrates a comprehensive deletion process for a given document ID.
+ |      It ensures that not only the document itself but also all its derived and associated
+ |      data across different storage layers are removed. If entities or relationships are partially affected, it triggers.
+ |
+ |      Args:
+ |          doc_id (str): The unique identifier of the document to be deleted.
+ |
+ |      Returns:
+ |          DeletionResult: An object containing the outcome of the deletion process.
+ |              - `status` (str): "success", "not_found", or "failure".
+ |              - `doc_id` (str): The ID of the document attempted to be deleted.
+ |              - `message` (str): A summary of the operation's result.
+ |              - `status_code` (int): HTTP status code (e.g., 200, 404, 500).
+ |              - `file_path` (str | None): The file path of the deleted document, if available.
+ |
+ |  async adelete_by_entity(self, entity_name: 'str') -> 'DeletionResult'
+ |      Asynchronously delete an entity and all its relationships.
+ |
+ |      Args:
+ |          entity_name: Name of the entity to delete.
+ |
+ |      Returns:
+ |          DeletionResult: An object containing the outcome of the deletion process.
+ |
+ |  async adelete_by_relation(self, source_entity: 'str', target_entity: 'str') -> 'DeletionResult'
+ |      Asynchronously delete a relation between two entities.
+ |
+ |      Args:
+ |          source_entity: Name of the source entity.
+ |          target_entity: Name of the target entity.
+ |
+ |      Returns:
+ |          DeletionResult: An object containing the outcome of the deletion process.
+ |
+ |  async aedit_entity(self, entity_name: 'str', updated_data: 'dict[str, str]', allow_rename: 'bool' = True) -> 'dict[str, Any]'
+ |      Asynchronously edit entity information.
+ |
+ |      Updates entity information in the knowledge graph and re-embeds the entity in the vector database.
+ |
+ |      Args:
+ |          entity_name: Name of the entity to edit
+ |          updated_data: Dictionary containing updated attributes, e.g. {"description": "new description", "entity_type": "new type"}
+ |          allow_rename: Whether to allow entity renaming, defaults to True
+ |
+ |      Returns:
+ |          Dictionary containing updated entity information
+ |
+ |  async aedit_relation(self, source_entity: 'str', target_entity: 'str', updated_data: 'dict[str, Any]') -> 'dict[str, Any]'
+ |      Asynchronously edit relation information.
+ |
+ |      Updates relation (edge) information in the knowledge graph and re-embeds the relation in the vector database.
+ |
+ |      Args:
+ |          source_entity: Name of the source entity
+ |          target_entity: Name of the target entity
+ |          updated_data: Dictionary containing updated attributes, e.g. {"description": "new description", "keywords": "new keywords"}
+ |
+ |      Returns:
+ |          Dictionary containing updated relation information
+ |
+ |  async aexport_data(self, output_path: 'str', file_format: "Literal['csv', 'excel', 'md', 'txt']" = 'csv', include_vector_data: 'bool' = False) -> 'None'
+ |      Asynchronously exports all entities, relations, and relationships to various formats.
+ |      Args:
+ |          output_path: The path to the output file (including extension).
+ |          file_format: Output format - "csv", "excel", "md", "txt".
+ |              - csv: Comma-separated values file
+ |              - excel: Microsoft Excel file with multiple sheets
+ |              - md: Markdown tables
+ |              - txt: Plain text formatted output
+ |              - table: Print formatted tables to console
+ |          include_vector_data: Whether to include data from the vector database.
+ |
+ |  async aget_docs_by_ids(self, ids: 'str | list[str]') -> 'dict[str, DocProcessingStatus]'
+ |      Retrieves the processing status for one or more documents by their IDs.
+ |
+ |      Args:
+ |          ids: A single document ID (string) or a list of document IDs (list of strings).
+ |
+ |      Returns:
+ |          A dictionary where keys are the document IDs for which a status was found,
+ |          and values are the corresponding DocProcessingStatus objects. IDs that
+ |          are not found in the storage will be omitted from the result dictionary.
+ |
+ |  async ainsert(self, input: 'str | list[str]', split_by_character: 'str | None' = None, split_by_character_only: 'bool' = False, ids: 'str | list[str] | None' = None, file_paths: 'str | list[str] | None' = None) -> 'None'
+ |      Async Insert documents with checkpoint support
+ |
+ |      Args:
+ |          input: Single document string or list of document strings
+ |          split_by_character: if split_by_character is not None, split the string by character, if chunk longer than
+ |          chunk_token_size, it will be split again by token size.
+ |          split_by_character_only: if split_by_character_only is True, split the string by character only, when
+ |          split_by_character is None, this parameter is ignored.
+ |          ids: list of unique document IDs, if not provided, MD5 hash IDs will be generated
+ |          file_paths: list of file paths corresponding to each document, used for citation
+ |
+ |  async ainsert_custom_chunks(self, full_text: 'str', text_chunks: 'list[str]', doc_id: 'str | None' = None) -> 'None'
+ |      # TODO: deprecated, use ainsert instead
+ |
+ |  async ainsert_custom_kg(self, custom_kg: 'dict[str, Any]', full_doc_id: 'str' = None) -> 'None'
+ |
+ |  async amerge_entities(self, source_entities: 'list[str]', target_entity: 'str', merge_strategy: 'dict[str, str]' = None, target_entity_data: 'dict[str, Any]' = None) -> 'dict[str, Any]'
+ |      Asynchronously merge multiple entities into one entity.
+ |
+ |      Merges multiple source entities into a target entity, handling all relationships,
+ |      and updating both the knowledge graph and vector database.
+ |
+ |      Args:
+ |          source_entities: List of source entity names to merge
+ |          target_entity: Name of the target entity after merging
+ |          merge_strategy: Merge strategy configuration, e.g. {"description": "concatenate", "entity_type": "keep_first"}
+ |              Supported strategies:
+ |              - "concatenate": Concatenate all values (for text fields)
+ |              - "keep_first": Keep the first non-empty value
+ |              - "keep_last": Keep the last non-empty value
+ |              - "join_unique": Join all unique values (for fields separated by delimiter)
+ |          target_entity_data: Dictionary of specific values to set for the target entity,
+ |              overriding any merged values, e.g. {"description": "custom description", "entity_type": "PERSON"}
+ |
+ |      Returns:
+ |          Dictionary containing the merged entity information
+ |
+ |  async apipeline_enqueue_documents(self, input: 'str | list[str]', ids: 'list[str] | None' = None, file_paths: 'str | list[str] | None' = None) -> 'None'
+ |      Pipeline for Processing Documents
+ |
+ |      1. Validate ids if provided or generate MD5 hash IDs
+ |      2. Remove duplicate contents
+ |      3. Generate document initial status
+ |      4. Filter out already processed documents
+ |      5. Enqueue document in status
+ |
+ |      Args:
+ |          input: Single document string or list of document strings
+ |          ids: list of unique document IDs, if not provided, MD5 hash IDs will be generated
+ |          file_paths: list of file paths corresponding to each document, used for citation
+ |
+ |  async apipeline_process_enqueue_documents(self, split_by_character: 'str | None' = None, split_by_character_only: 'bool' = False) -> 'None'
+ |      Process pending documents by splitting them into chunks, processing
+ |      each chunk for entity and relation extraction, and updating the
+ |      document status.
+ |
+ |      1. Get all pending, failed, and abnormally terminated processing documents.
+ |      2. Split document content into chunks
+ |      3. Process each chunk for entity and relation extraction
+ |      4. Update the document status
+ |
+ |  async aquery(self, query: 'str', param: 'QueryParam' = QueryParam(mode='mix', only_need_context=False, only_need_prompt=False, response_type='Multiple Paragraphs', stream=False, top_k=40, chunk_top_k=10, max_entity_tokens=10000, max_relation_tokens=10000, max_total_tokens=32000, hl_keywords=[], ll_keywords=[], conversation_history=[], history_turns=0, ids=None, model_func=None, user_prompt=None, enable_rerank=True), system_prompt: 'str | None' = None) -> 'str | AsyncIterator[str]'
+ |      Perform a async query.
+ |
+ |      Args:
+ |          query (str): The query to be executed.
+ |          param (QueryParam): Configuration parameters for query execution.
+ |              If param.model_func is provided, it will be used instead of the global model.
+ |          prompt (Optional[str]): Custom prompts for fine-tuned control over the system's behavior. Defaults to None, which uses PROMPTS["rag_response"].
+ |
+ |      Returns:
+ |          str: The result of the query execution.
+ |
+ |  async aquery_with_separate_keyword_extraction(self, query: 'str', prompt: 'str', param: 'QueryParam' = QueryParam(mode='mix', only_need_context=False, only_need_prompt=False, response_type='Multiple Paragraphs', stream=False, top_k=40, chunk_top_k=10, max_entity_tokens=10000, max_relation_tokens=10000, max_total_tokens=32000, hl_keywords=[], ll_keywords=[], conversation_history=[], history_turns=0, ids=None, model_func=None, user_prompt=None, enable_rerank=True)) -> 'str | AsyncIterator[str]'
+ |      Async version of query_with_separate_keyword_extraction.
+ |
+ |      Args:
+ |          query: User query
+ |          prompt: Additional prompt for the query
+ |          param: Query parameters
+ |
+ |      Returns:
+ |          Query response or async iterator
+ |
+ |  clear_cache(self, modes: 'list[str] | None' = None) -> 'None'
+ |      Synchronous version of aclear_cache.
+ |
+ |  create_entity(self, entity_name: 'str', entity_data: 'dict[str, Any]') -> 'dict[str, Any]'
+ |
+ |  create_relation(self, source_entity: 'str', target_entity: 'str', relation_data: 'dict[str, Any]') -> 'dict[str, Any]'
+ |
+ |  delete_by_entity(self, entity_name: 'str') -> 'DeletionResult'
+ |      Synchronously delete an entity and all its relationships.
+ |
+ |      Args:
+ |          entity_name: Name of the entity to delete.
+ |
+ |      Returns:
+ |          DeletionResult: An object containing the outcome of the deletion process.
+ |
+ |  delete_by_relation(self, source_entity: 'str', target_entity: 'str') -> 'DeletionResult'
+ |      Synchronously delete a relation between two entities.
+ |
+ |      Args:
+ |          source_entity: Name of the source entity.
+ |          target_entity: Name of the target entity.
+ |
+ |      Returns:
+ |          DeletionResult: An object containing the outcome of the deletion process.
+ |
+ |  edit_entity(self, entity_name: 'str', updated_data: 'dict[str, str]', allow_rename: 'bool' = True) -> 'dict[str, Any]'
+ |
+ |  edit_relation(self, source_entity: 'str', target_entity: 'str', updated_data: 'dict[str, Any]') -> 'dict[str, Any]'
+ |
+ |  export_data(self, output_path: 'str', file_format: "Literal['csv', 'excel', 'md', 'txt']" = 'csv', include_vector_data: 'bool' = False) -> 'None'
+ |      Synchronously exports all entities, relations, and relationships to various formats.
+ |      Args:
+ |          output_path: The path to the output file (including extension).
+ |          file_format: Output format - "csv", "excel", "md", "txt".
+ |              - csv: Comma-separated values file
+ |              - excel: Microsoft Excel file with multiple sheets
+ |              - md: Markdown tables
+ |              - txt: Plain text formatted output
+ |              - table: Print formatted tables to console
+ |          include_vector_data: Whether to include data from the vector database.
+ |
+ |  async finalize_storages(self)
+ |      Asynchronously finalize the storages
+ |
+ |  async get_docs_by_status(self, status: 'DocStatus') -> 'dict[str, DocProcessingStatus]'
+ |      Get documents by status
+ |
+ |      Returns:
+ |          Dict with document id is keys and document status is values
+ |
+ |  async get_entity_info(self, entity_name: 'str', include_vector_data: 'bool' = False) -> 'dict[str, str | None | dict[str, str]]'
+ |      Get detailed information of an entity
+ |
+ |  async get_graph_labels(self)
+ |
+ |  async get_knowledge_graph(self, node_label: 'str', max_depth: 'int' = 3, max_nodes: 'int' = None) -> 'KnowledgeGraph'
+ |      Get knowledge graph for a given label
+ |
+ |      Args:
+ |          node_label (str): Label to get knowledge graph for
+ |          max_depth (int): Maximum depth of graph
+ |          max_nodes (int, optional): Maximum number of nodes to return. Defaults to self.max_graph_nodes.
+ |
+ |      Returns:
+ |          KnowledgeGraph: Knowledge graph containing nodes and edges
+ |
+ |  async get_processing_status(self) -> 'dict[str, int]'
+ |      Get current document processing status counts
+ |
+ |      Returns:
+ |          Dict with counts for each status
+ |
+ |  async get_relation_info(self, src_entity: 'str', tgt_entity: 'str', include_vector_data: 'bool' = False) -> 'dict[str, str | None | dict[str, str]]'
+ |      Get detailed information of a relationship
+ |
+ |  async initialize_storages(self)
+ |      Asynchronously initialize the storages
+ |
+ |  insert(self, input: 'str | list[str]', split_by_character: 'str | None' = None, split_by_character_only: 'bool' = False, ids: 'str | list[str] | None' = None, file_paths: 'str | list[str] | None' = None) -> 'None'
+ |      Sync Insert documents with checkpoint support
+ |
+ |      Args:
+ |          input: Single document string or list of document strings
+ |          split_by_character: if split_by_character is not None, split the string by character, if chunk longer than
+ |          chunk_token_size, it will be split again by token size.
+ |          split_by_character_only: if split_by_character_only is True, split the string by character only, when
+ |          split_by_character is None, this parameter is ignored.
+ |          ids: single string of the document ID or list of unique document IDs, if not provided, MD5 hash IDs will be generated
+ |          file_paths: single string of the file path or list of file paths, used for citation
+ |
+ |  insert_custom_chunks(self, full_text: 'str', text_chunks: 'list[str]', doc_id: 'str | list[str] | None' = None) -> 'None'
+ |      # TODO: deprecated, use insert instead
+ |
+ |  insert_custom_kg(self, custom_kg: 'dict[str, Any]', full_doc_id: 'str' = None) -> 'None'
+ |
+ |  merge_entities(self, source_entities: 'list[str]', target_entity: 'str', merge_strategy: 'dict[str, str]' = None, target_entity_data: 'dict[str, Any]' = None) -> 'dict[str, Any]'
+ |
+ |  query(self, query: 'str', param: 'QueryParam' = QueryParam(mode='mix', only_need_context=False, only_need_prompt=False, response_type='Multiple Paragraphs', stream=False, top_k=40, chunk_top_k=10, max_entity_tokens=10000, max_relation_tokens=10000, max_total_tokens=32000, hl_keywords=[], ll_keywords=[], conversation_history=[], history_turns=0, ids=None, model_func=None, user_prompt=None, enable_rerank=True), system_prompt: 'str | None' = None) -> 'str | Iterator[str]'
+ |      Perform a sync query.
+ |
+ |      Args:
+ |          query (str): The query to be executed.
+ |          param (QueryParam): Configuration parameters for query execution.
+ |          prompt (Optional[str]): Custom prompts for fine-tuned control over the system's behavior. Defaults to None, which uses PROMPTS["rag_response"].
+ |
+ |      Returns:
+ |          str: The result of the query execution.
+ |
+ |  query_with_separate_keyword_extraction(self, query: 'str', prompt: 'str', param: 'QueryParam' = QueryParam(mode='mix', only_need_context=False, only_need_prompt=False, response_type='Multiple Paragraphs', stream=False, top_k=40, chunk_top_k=10, max_entity_tokens=10000, max_relation_tokens=10000, max_total_tokens=32000, hl_keywords=[], ll_keywords=[], conversation_history=[], history_turns=0, ids=None, model_func=None, user_prompt=None, enable_rerank=True))
+ |      Query with separate keyword extraction step.
+ |
+ |      This method extracts keywords from the query first, then uses them for the query.
+ |
+ |      Args:
+ |          query: User query
+ |          prompt: Additional prompt for the query
+ |          param: Query parameters
+ |
+ |      Returns:
+ |          Query response
+ |
+ |  ----------------------------------------------------------------------
+ |  Data descriptors defined here:
+ |
+ |  __dict__
+ |      dictionary for instance variables
+ |
+ |  __weakref__
+ |      list of weak references to the object
+ |
+ |  ----------------------------------------------------------------------
+ |  Data and other attributes defined here:
+ |
+ |  __annotations__ = {'_storages_status': 'StoragesStatus', 'addon_params...
+ |
+ |  __dataclass_fields__ = {'_storages_status': Field(name='_storages_stat...
+ |
+ |  __dataclass_params__ = _DataclassParams(init=True,repr=True,eq=True,or...
+ |
+ |  __final__ = True
+ |
+ |  __hash__ = None
+ |
+ |  __match_args__ = ('working_dir', 'kv_storage', 'vector_storage', 'grap...
+ |
+ |  auto_manage_storages_states = True
+ |
+ |  chunk_overlap_token_size = 100
+ |
+ |  chunk_token_size = 1200
+ |
+ |  chunk_top_k = 10
+ |
+ |  cosine_better_than_threshold = 0.2
+ |
+ |  cosine_threshold = 0.2
+ |
+ |  doc_status_storage = 'JsonDocStatusStorage'
+ |
+ |  embedding_batch_num = 10
+ |
+ |  embedding_func = None
+ |
+ |  embedding_func_max_async = 8
+ |
+ |  enable_llm_cache = True
+ |
+ |  enable_llm_cache_for_entity_extract = True
+ |
+ |  entity_extract_max_gleaning = 1
+ |
+ |  force_llm_summary_on_merge = 4
+ |
+ |  graph_storage = 'NetworkXStorage'
+ |
+ |  kv_storage = 'JsonKVStorage'
+ |
+ |  llm_model_func = None
+ |
+ |  llm_model_max_async = 4
+ |
+ |  llm_model_max_token_size = 32000
+ |
+ |  llm_model_name = 'gpt-4o-mini'
+ |
+ |  log_file_path = None
+ |
+ |  log_level = None
+ |
+ |  max_entity_tokens = 10000
+ |
+ |  max_graph_nodes = 1000
+ |
+ |  max_parallel_insert = 2
+ |
+ |  max_relation_tokens = 10000
+ |
+ |  max_total_tokens = 32000
+ |
+ |  related_chunk_number = 10
+ |
+ |  rerank_model_func = None
+ |
+ |  tiktoken_model_name = 'gpt-4o-mini'
+ |
+ |  tokenizer = None
+ |
+ |  top_k = 40
+ |
+ |  vector_storage = 'NanoVectorDBStorage'
+ |
+ |  working_dir = './rag_storage'
+

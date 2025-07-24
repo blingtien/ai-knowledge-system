@@ -1,0 +1,9 @@
+service_name: "memory-service"
+environment: "memory-env"
+port: 8765
+working_dir: "./data/memory_storage"
+api_key_env: "OPENAI_API_KEY"
+memory_limit: "1.5GB"
+cpu_limit: 1
+health_endpoint: "/health"
+startup_timeout: 30

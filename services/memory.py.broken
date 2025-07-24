@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+import os
+import sys
+import subprocess
+
+# 配置
+PORT = 8765
+# 使用 sys.executable 来保证我们调用的是当前虚拟环境的Python解释器
+PYTHON_EXEC = sys.executable
+
+print(f"🚀 启动OpenMemory服务 - 端口: {PORT}")
+print(f"🐍 使用Python解释器: {PYTHON_EXEC}")
+
+# 这是启动 mem0-server 最可靠和明确的方式
+command = [
+    PYTHON_EXEC,
+    "-m",
+    "mem0.server",
+    "--host", "0.0.0.0",
+    "--port", str(PORT)
+]
+
+print(f"🔧 执行命令: {' '.join(command)}")
+try:
+    # 使用 execvp 将当前脚本进程替换为服务进程本身
+    # 这是启动守护进程的推荐方式，它能正确处理进程信号和父子关系，让管理更简单
+    os.execvp(command[0], command)
+except FileNotFoundError:
+    print(f"❌ 启动失败: '{PYTHON_EXEC}' 不存在或模块 'mem0.server' 未找到。")
+    print("请确认OpenMemory已在 'memory-env' 虚拟环境中正确安装: pip install mem0ai")
+    sys.exit(1)
+except Exception as e:
+    print(f"❌ 启动时发生未知错误: {e}")
+    sys.exit(1)

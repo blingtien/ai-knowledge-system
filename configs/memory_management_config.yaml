@@ -1,0 +1,157 @@
+# 内存管理配置文件
+# 用于统一管理所有服务的内存分配和动态调整
+
+# 系统总内存配置（10GB系统）
+system:
+  total_memory: "10GB"          # 系统总内存
+  reserved_for_os: "1.5GB"     # 为操作系统保留
+  available_for_services: "8.5GB" # 可用于服务的内存
+  memory_buffer: "500MB"       # 安全缓冲区（紧凑型）
+
+# 服务内存配置
+services:
+  # 基础设施服务（Docker）- 压缩配置
+  infrastructure:
+    qdrant:
+      base_memory: "800MB"       # 压缩至800MB
+      max_memory: "1.2GB"       
+      priority: "high"
+      auto_scale: false
+    postgres:
+      base_memory: "600MB"       # 压缩至600MB
+      max_memory: "1GB"         
+      priority: "high"
+      auto_scale: false
+    redis:
+      base_memory: "400MB"       # 压缩至400MB
+      max_memory: "600MB"       
+      priority: "medium"
+      auto_scale: true
+    nginx:
+      base_memory: "100MB"       # 压缩至100MB
+      max_memory: "200MB"       
+      priority: "low"
+      auto_scale: false
+    # 基础设施总计: 1.9GB (base) / 2.8GB (max)
+
+  # 应用服务（Python）- 10GB系统优化配置
+  applications:
+    rag-service:
+      base_memory: "3GB"          # 压缩基础内存
+      embedding_memory: "2.4GB"   # Qwen3-Embedding必需内存
+      max_memory: "6GB"           # 限制最大内存
+      priority: "critical"
+      auto_scale: true
+      scale_threshold: 0.85
+      scale_step: "512MB"         # 小步长扩容
+      note: "包含预加载的Qwen3-Embedding模型"
+    
+    memory-service:
+      base_memory: "300MB"        # 压缩配置
+      max_memory: "800MB"         
+      priority: "high"
+      auto_scale: true
+      scale_threshold: 0.80
+      scale_step: "128MB"
+    
+    mcp-rag:
+      base_memory: "150MB"        # 轻量级配置
+      max_memory: "400MB"         
+      priority: "medium"
+      auto_scale: true
+    
+    mcp-memory:
+      base_memory: "150MB"        # 轻量级配置
+      max_memory: "400MB"         
+      priority: "medium"
+      auto_scale: true
+    
+    viz-service:
+      base_memory: "200MB"        # 压缩配置
+      max_memory: "600MB"         
+      priority: "low"
+      auto_scale: true
+    # 应用服务总计: 3.8GB (base) / 8.2GB (max)
+
+  # 新增服务（10GB系统）
+  future:
+    openmemory:
+      base_memory: "400MB"        # OpenMemory服务
+      max_memory: "1GB"          
+      priority: "high"
+      auto_scale: true
+      scale_threshold: 0.80
+      note: "内存管理和语义检索服务"
+    
+    dify:
+      base_memory: "800MB"        # Dify Web UI平台  
+      max_memory: "1.5GB"        
+      priority: "high"
+      auto_scale: true
+      scale_threshold: 0.80
+      note: "Web界面和工作流编排"
+    
+    lightrag-webui:
+      base_memory: "200MB"        # 图谱可视化
+      max_memory: "500MB"        
+      priority: "low"
+      auto_scale: true
+      note: "知识图谱可视化界面"
+    # 新增服务总计: 1.4GB (base) / 3GB (max)
+
+# 动态调整策略
+dynamic_scaling:
+  enabled: true
+  check_interval: 30              # 每30秒检查一次
+  
+  # 扩容条件
+  scale_up:
+    memory_threshold: 0.85        # 内存使用率阈值
+    cpu_threshold: 0.80           # CPU使用率阈值
+    duration: 120                 # 持续时间（秒）
+  
+  # 缩容条件
+  scale_down:
+    memory_threshold: 0.60        # 内存使用率阈值
+    duration: 300                 # 持续时间（秒）
+    min_memory_protection: true   # 不能低于base_memory
+
+# 告警配置
+alerts:
+  memory_high: 0.90              # 内存使用率告警阈值
+  memory_critical: 0.95          # 内存使用率严重告警
+  insufficient_memory: "500MB"   # 可用内存不足告警
+
+# 服务优先级说明
+# critical: 核心服务，不能停止
+# high: 重要服务，优先保障资源
+# medium: 一般服务，可以根据需要调整
+# low: 可选服务，资源不足时优先压缩或停止
+
+# ===========================================
+# 10GB系统内存分配总结
+# ===========================================
+# 操作系统保留:     1.5GB
+# 安全缓冲区:       0.5GB
+# 可用于服务:       8.0GB
+# 
+# 基础配置分配:
+# - 基础设施:       1.9GB (qdrant, postgres, redis, nginx)
+# - 当前应用:       3.8GB (rag, memory, mcp等)
+# - 新增服务:       1.4GB (openmemory, dify, webui)
+# 总计基础配置:     7.1GB (剩余0.9GB可用)
+#
+# 峰值配置(如果需要):
+# - 基础设施:       2.8GB 
+# - 当前应用:       8.2GB
+# - 新增服务:       3.0GB
+# 总计峰值:         14GB (超出系统容量，需动态调整)
+#
+# 运行策略:
+# 1. 优先保障critical和high优先级服务
+# 2. 根据实际使用情况动态启停low优先级服务
+# 3. 内存不足时按优先级降级或停止服务
+# 4. 建议同时运行的组合：
+#    - 基础组合: 基础设施 + RAG + Memory = ~5.2GB
+#    - 完整组合: 基础组合 + Dify + OpenMemory = ~6.4GB  
+#    - 开发组合: 完整组合 + WebUI + MCP = ~7.2GB

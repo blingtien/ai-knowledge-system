@@ -1,0 +1,851 @@
+#!/usr/bin/env python3
+"""
+RAG Knowledge Management Web Interface - 优化版
+提供知识库管理和查询的Web界面，运行在端口4000
+与rag.py服务(端口8001)协作
+"""
+import os
+import json
+import asyncio
+import aiofiles
+import aiohttp
+import hashlib
+import uuid
+from pathlib import Path
+from datetime import datetime
+from typing import List, Optional
+
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, BackgroundTasks
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse, JSONResponse
+from pydantic import BaseModel
+import uvicorn
+
+# 应用配置
+app = FastAPI(title="RAG Knowledge Management Web Interface", version="1.1.0")
+
+# 配置目录
+BASE_DIR = Path(__file__).parent
+STATIC_DIR = BASE_DIR / "static"
+UPLOADS_DIR = BASE_DIR / "uploads"
+KNOWLEDGE_BASES_DIR = BASE_DIR / "knowledge_bases"
+
+# 确保目录存在
+for dir_path in [UPLOADS_DIR, KNOWLEDGE_BASES_DIR]:
+    dir_path.mkdir(parents=True, exist_ok=True)
+
+# 挂载静态文件
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+# 🔧 RAG服务配置 - 匹配你的rag.py设置
+RAG_SERVICE_URL = "http://localhost:8001"
+RAG_HEALTH_URL = f"{RAG_SERVICE_URL}/health"
+RAG_QUERY_URL = f"{RAG_SERVICE_URL}/api/query"
+RAG_INSERT_URL = f"{RAG_SERVICE_URL}/api/insert"
+RAG_PARSE_DOCUMENT_URL = f"{RAG_SERVICE_URL}/api/parse-document"
+RAG_PROGRESS_URL = f"{RAG_SERVICE_URL}/api/progress"
+
+# 数据模型
+class QueryRequest(BaseModel):
+    query: str
+    mode: str = "hybrid"
+    
+class QueryResponse(BaseModel):
+    status: str
+    result: str
+    mode: str
+    timestamp: datetime
+
+class KnowledgeBase(BaseModel):
+    name: str
+    description: str = ""
+    
+class FileInfo(BaseModel):
+    filename: str
+    size: int
+    upload_time: datetime
+    status: str = "uploaded"  # uploaded, processing, completed, error
+    progress: int = 0
+    knowledge_base: str
+
+# 全局状态管理
+knowledge_bases = {}
+file_status = {}
+
+# 启动时加载已存在的知识库和文件
+def load_existing_knowledge_bases():
+    """从文件系统加载已存在的知识库"""
+    if KNOWLEDGE_BASES_DIR.exists():
+        for kb_dir in KNOWLEDGE_BASES_DIR.iterdir():
+            if kb_dir.is_dir():
+                knowledge_bases[kb_dir.name] = {
+                    "name": kb_dir.name,
+                    "description": "",
+                    "created_time": datetime.fromtimestamp(kb_dir.stat().st_ctime),
+                    "file_count": len(list(kb_dir.glob("*"))),
+                    "path": str(kb_dir)
+                }
+                print(f"📂 加载知识库: {kb_dir.name}")
+
+def load_existing_files():
+    """从上传目录加载已存在的文件"""
+    if UPLOADS_DIR.exists():
+        for file_path in UPLOADS_DIR.glob("*"):
+            if file_path.is_file():
+                filename = file_path.name
+                if "_" in filename:
+                    kb_name = filename.split("_")[0]
+                    file_info = {
+                        "filename": filename,
+                        "safe_filename": filename,
+                        "size": file_path.stat().st_size,
+                        "upload_time": datetime.fromtimestamp(file_path.stat().st_ctime),
+                        "status": "uploaded",
+                        "progress": 0,
+                        "knowledge_base": kb_name,
+                        "file_path": str(file_path)
+                    }
+                    file_status[filename] = file_info
+                    print(f"📄 加载文件: {filename}")
+
+# 应用启动时执行
+load_existing_knowledge_bases()
+load_existing_files()
+
+async def check_rag_service_health():
+    """检查RAG服务是否可用"""
+    try:
+        timeout = aiohttp.ClientTimeout(total=5)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(RAG_HEALTH_URL) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    print(f"✅ RAG服务健康检查通过: {data}")
+                    return True, data
+                else:
+                    print(f"❌ RAG服务健康检查失败: {response.status}")
+                    return False, f"HTTP {response.status}"
+    except Exception as e:
+        print(f"❌ RAG服务连接失败: {e}")
+        return False, str(e)
+
+@app.on_event("startup")
+async def startup_event():
+    """应用启动时检查RAG服务"""
+    print("🚀 Web界面启动中...")
+    
+    # 给RAG服务一些启动时间
+    print("⏳ 等待RAG服务启动...")
+    await asyncio.sleep(2)
+    
+    health_ok, health_info = await check_rag_service_health()
+    if health_ok:
+        print("✅ RAG服务连接正常")
+        print(f"📊 RAG服务状态: {health_info}")
+    else:
+        print(f"⚠️ RAG服务未就绪: {health_info}")
+        print("💡 请确保 rag.py 服务正在运行: python rag.py")
+
+@app.get("/", response_class=HTMLResponse)
+async def read_root():
+    """返回主页面"""
+    html_file = STATIC_DIR / "index.html"
+    if html_file.exists():
+        async with aiofiles.open(html_file, 'r', encoding='utf-8') as f:
+            content = await f.read()
+        return HTMLResponse(content=content)
+    else:
+        return HTMLResponse(content="""
+        <html><body>
+        <h1>RAG Knowledge Management System</h1>
+        <p>静态文件未找到，请检查 static/index.html</p>
+        </body></html>
+        """)
+
+@app.get("/health")
+async def health_check():
+    """健康检查"""
+    try:
+        # 检查RAG服务状态
+        rag_healthy, rag_info = await check_rag_service_health()
+        
+        return {
+            "status": "healthy",
+            "service": "rag-web-interface",
+            "port": 4000,
+            "rag_service": {
+                "healthy": rag_healthy,
+                "info": rag_info,
+                "url": RAG_SERVICE_URL
+            },
+            "knowledge_bases": len(knowledge_bases),
+            "total_files": len(file_status),
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "service": "rag-web-interface",
+            "error": str(e)
+        }
+
+@app.get("/api/knowledge-bases")
+async def list_knowledge_bases():
+    """获取知识库列表"""
+    return {"knowledge_bases": list(knowledge_bases.values())}
+
+@app.post("/api/knowledge-bases")
+async def create_knowledge_base(kb: KnowledgeBase):
+    """创建新的知识库"""
+    if kb.name in knowledge_bases:
+        raise HTTPException(status_code=400, detail="Knowledge base already exists")
+    
+    kb_dir = KNOWLEDGE_BASES_DIR / kb.name
+    kb_dir.mkdir(exist_ok=True)
+    
+    knowledge_bases[kb.name] = {
+        "name": kb.name,
+        "description": kb.description,
+        "created_time": datetime.now(),
+        "file_count": 0,
+        "path": str(kb_dir)
+    }
+    
+    return {"status": "success", "message": f"Knowledge base '{kb.name}' created"}
+
+@app.get("/api/files")
+async def list_files(knowledge_base: Optional[str] = None):
+    """获取文件列表"""
+    if knowledge_base:
+        filtered_files = {k: v for k, v in file_status.items() 
+                         if v.get("knowledge_base") == knowledge_base}
+        return {"files": list(filtered_files.values())}
+    return {"files": list(file_status.values())}
+
+@app.post("/api/upload")
+async def upload_files(
+    background_tasks: BackgroundTasks,
+    files: List[UploadFile] = File(...),
+    knowledge_base: str = Form(...)
+):
+    """上传文件到指定知识库"""
+    print(f"📤 收到上传请求: 知识库={knowledge_base}, 文件数={len(files)}")
+    
+    if knowledge_base not in knowledge_bases:
+        print(f"❌ 知识库不存在: {knowledge_base}")
+        raise HTTPException(status_code=400, detail=f"知识库 '{knowledge_base}' 不存在，请先创建知识库")
+    
+    uploaded_files = []
+    
+    try:
+        for file in files:
+            print(f"📄 处理文件: {file.filename}")
+            
+            file_ext = Path(file.filename).suffix
+            safe_filename = f"{knowledge_base}_{uuid.uuid4().hex[:8]}{file_ext}"
+            file_path = UPLOADS_DIR / safe_filename
+            
+            async with aiofiles.open(file_path, 'wb') as f:
+                content = await file.read()
+                await f.write(content)
+            
+            file_info = {
+                "filename": file.filename,
+                "safe_filename": safe_filename,
+                "size": len(content),
+                "upload_time": datetime.now(),
+                "status": "uploaded",
+                "progress": 0,
+                "knowledge_base": knowledge_base,
+                "file_path": str(file_path)
+            }
+            
+            file_status[safe_filename] = file_info
+            uploaded_files.append(file_info)
+            print(f"✅ 文件上传成功: {file.filename}")
+            
+    except Exception as e:
+        print(f"❌ 上传失败: {e}")
+        raise HTTPException(status_code=500, detail=f"文件上传失败: {str(e)}")
+    
+    knowledge_bases[knowledge_base]["file_count"] += len(uploaded_files)
+    
+    return {
+        "status": "success", 
+        "uploaded_files": len(uploaded_files),
+        "files": [
+            {
+                "filename": info["filename"],
+                "safe_filename": info["safe_filename"],
+                "size": info["size"],
+                "status": info["status"],
+                "progress": info["progress"],
+                "knowledge_base": info["knowledge_base"],
+                "upload_time": info["upload_time"].isoformat()
+            }
+            for info in uploaded_files
+        ]
+    }
+
+@app.post("/api/parse")
+async def start_parsing(
+    background_tasks: BackgroundTasks,
+    filename: str = Form(...),
+    knowledge_base: str = Form(...)
+):
+    """开始解析指定文件"""
+    print(f"🔍 收到解析请求: filename={filename}, kb={knowledge_base}")
+    
+    file_key = None
+    for key, file_info in file_status.items():
+        if (file_info.get("filename") == filename and 
+            file_info.get("knowledge_base") == knowledge_base):
+            file_key = key
+            break
+    
+    if file_key is None:
+        print(f"❌ 文件未找到: {filename}")
+        raise HTTPException(status_code=404, detail=f"File not found: {filename}")
+    
+    # 🔧 优化：先检查RAG服务状态
+    rag_healthy, rag_info = await check_rag_service_health()
+    if not rag_healthy:
+        raise HTTPException(
+            status_code=503, 
+            detail=f"RAG服务不可用: {rag_info}。请确保 rag.py 服务正在运行。"
+        )
+    
+    # 初始化状态
+    file_status[file_key]["status"] = "processing"
+    file_status[file_key]["progress"] = 0
+    file_status[file_key]["error"] = None
+    print(f"📊 初始化状态: {file_key} -> processing, progress=0%")
+    
+    # 启动后台解析任务
+    background_tasks.add_task(process_file_parsing_optimized, file_key)
+    
+    return {"status": "success", "message": f"Started parsing {filename}"}
+
+async def process_file_parsing_optimized(file_key: str):
+    """优化版的后台文件解析任务"""
+    try:
+        print(f"🔄 开始解析文件: {file_key}")
+        file_info = file_status[file_key]
+        file_path = file_info["file_path"]
+        knowledge_base_name = file_info["knowledge_base"]
+        
+        # 添加小延迟确保前端能看到初始状态
+        await asyncio.sleep(0.5)
+        
+        # 真实进度跟踪
+        file_status[file_key]["progress"] = 10
+        print(f"📊 进度更新: {file_key} -> 10% (验证文件存在)")
+        await asyncio.sleep(1)
+        
+        # 检查文件是否存在
+        if not Path(file_path).exists():
+            raise Exception(f"文件不存在: {file_path}")
+        
+        file_status[file_key]["progress"] = 30
+        print(f"📊 进度更新: {file_key} -> 30% (文件验证完成，准备发送给RAG服务)")
+        await asyncio.sleep(1)
+        
+        file_status[file_key]["progress"] = 50
+        print(f"📊 进度更新: {file_key} -> 50% (准备调用RAG服务进行文档处理)")
+        await asyncio.sleep(1)
+        
+        # 🔧 调用RAG服务的文档处理接口
+        file_status[file_key]["progress"] = 70
+        print(f"📊 进度更新: {file_key} -> 70% (正在发送到RAG服务进行文档处理)")
+        
+        # 准备文档处理的payload
+        payload = {
+            "file_path": file_path,
+            "knowledge_base": knowledge_base_name,
+            "parse_method": "auto",
+            "display_stats": True
+        }
+        
+        print(f"📤 发送到RAG服务进行文档处理:")
+        print(f"   - 文件名: {file_info['filename']}")
+        print(f"   - 文件路径: {file_path}")
+        print(f"   - 知识库: {knowledge_base_name}")
+        print(f"   - RAG服务URL: {RAG_PARSE_DOCUMENT_URL}")
+        
+        # 🔧 优化的HTTP请求设置 - 大文档处理设置4小时超时
+        timeout = aiohttp.ClientTimeout(total=14400, connect=60)  # 4小时总超时，60秒连接超时
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            try:
+                async with session.post(RAG_PARSE_DOCUMENT_URL, json=payload) as response:
+                    response_status = response.status
+                    response_text = await response.text()
+                    
+                    print(f"📥 RAG服务响应: 状态码={response_status}")
+                    print(f"📥 RAG服务响应内容: {response_text[:500]}...")
+                    
+                    if response_status == 200:
+                        try:
+                            response_data = json.loads(response_text)
+                            print(f"✅ RAG服务响应数据: {response_data}")
+                        except json.JSONDecodeError:
+                            print(f"⚠️ RAG服务响应不是JSON格式，内容: {response_text}")
+                        
+                        file_status[file_key]["progress"] = 90
+                        print(f"📊 进度更新: {file_key} -> 90% (RAG服务处理完成)")
+                        await asyncio.sleep(1)
+                        
+                        # 🔧 验证文档处理结果
+                        verification_result = await verify_insertion_advanced(
+                            knowledge_base_name, 
+                            file_info["filename"], 
+                            file_info["filename"].split('.')[0]  # 使用文件名（去掉扩展名）作为查询词
+                        )
+                        
+                        if verification_result:
+                            print(f"✅ 文档处理验证成功: 可以查询到文档内容")
+                            file_status[file_key]["status"] = "completed"
+                            file_status[file_key]["progress"] = 100
+                            print(f"✅ 文档处理成功: {file_key} -> 100% (全部完成)")
+                        else:
+                            print(f"⚠️ 文档处理验证失败: 无法查询到文档内容")
+                            file_status[file_key]["status"] = "completed"  # 仍标记完成，因为处理API成功了
+                            file_status[file_key]["progress"] = 100
+                            file_status[file_key]["error"] = "文档处理成功但验证查询未通过，可能需要等待索引完成"
+                        
+                    else:
+                        error_msg = f"RAG服务错误: HTTP {response_status} - {response_text}"
+                        print(f"❌ RAG文档处理失败: {error_msg}")
+                        file_status[file_key]["status"] = "error"
+                        file_status[file_key]["progress"] = 0
+                        file_status[file_key]["error"] = error_msg
+                        
+            except asyncio.TimeoutError:
+                error_msg = "RAG服务请求超时 (10分钟)"
+                print(f"❌ {error_msg}")
+                file_status[file_key]["status"] = "error"
+                file_status[file_key]["progress"] = 0
+                file_status[file_key]["error"] = error_msg
+            except aiohttp.ClientError as e:
+                error_msg = f"连接RAG服务失败: {str(e)}"
+                print(f"❌ {error_msg}")
+                file_status[file_key]["status"] = "error"
+                file_status[file_key]["progress"] = 0
+                file_status[file_key]["error"] = error_msg
+                
+    except Exception as e:
+        error_msg = f"解析异常: {str(e)}"
+        print(f"❌ {error_msg}")
+        file_status[file_key]["status"] = "error"
+        file_status[file_key]["progress"] = 0
+        file_status[file_key]["error"] = error_msg
+        
+        import traceback
+        traceback.print_exc()
+
+async def read_file_with_multiple_encodings(file_path: str) -> str:
+    """多编码方式读取文件"""
+    encodings = ['utf-8', 'gbk', 'gb2312', 'utf-16', 'latin1']
+    
+    for encoding in encodings:
+        try:
+            async with aiofiles.open(file_path, 'r', encoding=encoding) as f:
+                content = await f.read()
+                print(f"✅ 成功使用 {encoding} 编码读取文件")
+                return content
+        except (UnicodeDecodeError, UnicodeError):
+            print(f"⚠️ {encoding} 编码读取失败，尝试下一个...")
+            continue
+    
+    # 最后尝试二进制读取
+    try:
+        async with aiofiles.open(file_path, 'rb') as f:
+            raw_content = await f.read()
+            content = raw_content.decode('utf-8', errors='ignore')
+            print(f"✅ 使用二进制+忽略错误模式读取文件")
+            return content
+    except Exception as e:
+        raise Exception(f"无法读取文件 {file_path}: {e}")
+
+async def verify_insertion_advanced(knowledge_base: str, filename: str, content_sample: str):
+    """高级插入验证"""
+    try:
+        print(f"🔍 验证插入: 知识库={knowledge_base}, 文件={filename}")
+        
+        # 等待一定时间让RAG服务完成索引
+        await asyncio.sleep(3)
+        
+        # 准备多种查询词进行验证
+        test_queries = []
+        
+        # 1. 使用文件名（去掉扩展名）
+        if filename:
+            base_name = filename.split('.')[0]
+            if len(base_name) > 3:
+                test_queries.append(base_name[:20])
+        
+        # 2. 使用内容的关键词
+        if content_sample and len(content_sample) > 10:
+            # 简单提取一些可能的关键词
+            words = content_sample.split()
+            if len(words) >= 3:
+                test_queries.append(' '.join(words[:3]))
+            test_queries.append(content_sample[:30])
+        
+        if not test_queries:
+            test_queries = ["测试查询"]
+        
+        print(f"🔍 测试查询词: {test_queries}")
+        
+        # 尝试不同的查询模式
+        for query in test_queries[:2]:  # 最多测试2个查询词
+            for mode in ["naive", "hybrid"]:
+                try:
+                    payload = {
+                        "query": query,
+                        "mode": mode
+                    }
+                    
+                    timeout = aiohttp.ClientTimeout(total=30)
+                    async with aiohttp.ClientSession(timeout=timeout) as session:
+                        async with session.post(RAG_QUERY_URL, json=payload) as response:
+                            if response.status == 200:
+                                response_text = await response.text()
+                                try:
+                                    response_data = json.loads(response_text)
+                                    result_data = response_data.get('data', response_text)
+                                except json.JSONDecodeError:
+                                    result_data = response_text
+                                
+                                print(f"🔍 验证查询响应 ({mode}): {str(result_data)[:200]}...")
+                                
+                                # 检查响应中是否包含相关内容
+                                result_str = str(result_data).lower()
+                                query_lower = query.lower()
+                                
+                                if (query_lower in result_str or 
+                                    len(result_str.strip()) > 50):  # 如果有实质性的响应
+                                    print(f"✅ 验证成功: 查询 '{query}' ({mode}) 返回了相关内容")
+                                    return True
+                                else:
+                                    print(f"⚠️ 查询 '{query}' ({mode}) 未返回预期内容")
+                            else:
+                                print(f"❌ 验证查询失败: {response.status}")
+                                
+                except Exception as e:
+                    print(f"❌ 验证查询异常: {e}")
+                    continue
+        
+        print(f"❌ 所有验证查询都未通过")
+        return False
+        
+    except Exception as e:
+        print(f"❌ 验证异常: {e}")
+        return False
+
+@app.get("/api/files/{file_key}/status")
+async def get_file_status(file_key: str):
+    """获取文件解析状态"""
+    print(f"🔍 查询文件状态: {file_key}")
+    
+    # 首先尝试直接匹配
+    if file_key in file_status:
+        print(f"📋 找到文件状态: {file_key}")
+        return file_status[file_key]
+    
+    # 尝试通过safe_filename字段匹配
+    for key, file_info in file_status.items():
+        if file_info.get("safe_filename") == file_key:
+            return file_info
+    
+    # URL解码匹配
+    import urllib.parse
+    try:
+        decoded_file_key = urllib.parse.unquote(file_key)
+        if decoded_file_key in file_status:
+            return file_status[decoded_file_key]
+    except Exception:
+        pass
+    
+    print(f"❌ 文件未找到: {file_key}")
+    raise HTTPException(status_code=404, detail=f"File not found: {file_key}")
+
+# 🔧 新增：文件状态重置接口，用于调试
+@app.post("/api/files/{file_key}/reset")
+async def reset_file_status(file_key: str):
+    """重置文件状态为uploaded（用于调试）"""
+    if file_key in file_status:
+        file_status[file_key]["status"] = "uploaded"
+        file_status[file_key]["progress"] = 0
+        file_status[file_key]["error"] = None
+        return {"status": "success", "message": f"File {file_key} status reset"}
+    else:
+        raise HTTPException(status_code=404, detail=f"File not found: {file_key}")
+
+# 🔧 新增：删除文件接口
+@app.delete("/api/files/{file_key}")
+async def delete_file(file_key: str):
+    """删除指定文件"""
+    print(f"🗑️ 收到删除请求: {file_key}")
+    
+    # 查找文件
+    file_info = None
+    if file_key in file_status:
+        file_info = file_status[file_key]
+    else:
+        # 尝试通过safe_filename匹配
+        for key, info in file_status.items():
+            if info.get("safe_filename") == file_key:
+                file_key = key
+                file_info = info
+                break
+    
+    if not file_info:
+        print(f"❌ 文件未找到: {file_key}")
+        raise HTTPException(status_code=404, detail=f"File not found: {file_key}")
+    
+    try:
+        # 删除物理文件
+        file_path = Path(file_info["file_path"])
+        if file_path.exists():
+            file_path.unlink()
+            print(f"✅ 删除物理文件: {file_path}")
+        else:
+            print(f"⚠️ 物理文件不存在: {file_path}")
+        
+        # 从内存状态中删除
+        original_filename = file_info["filename"]
+        knowledge_base = file_info["knowledge_base"]
+        del file_status[file_key]
+        print(f"✅ 删除内存记录: {file_key}")
+        
+        # 更新知识库文件计数
+        if knowledge_base in knowledge_bases:
+            knowledge_bases[knowledge_base]["file_count"] = max(0, knowledge_bases[knowledge_base]["file_count"] - 1)
+        
+        return {
+            "status": "success", 
+            "message": f"文件 {original_filename} 删除成功",
+            "deleted_file": original_filename
+        }
+        
+    except Exception as e:
+        print(f"❌ 删除文件失败: {e}")
+        raise HTTPException(status_code=500, detail=f"删除文件失败: {str(e)}")
+
+@app.post("/api/query")
+async def query_knowledge_base(request: QueryRequest):
+    """查询知识库"""
+    try:
+        print(f"🔍 收到查询请求: {request.query[:50]}... (mode: {request.mode})")
+        
+        # 检查RAG服务状态
+        rag_healthy, rag_info = await check_rag_service_health()
+        if not rag_healthy:
+            raise HTTPException(
+                status_code=503, 
+                detail=f"RAG服务不可用: {rag_info}"
+            )
+        
+        # 转发查询请求到RAG服务
+        payload = {
+            "query": request.query,
+            "mode": request.mode
+        }
+        
+        timeout = aiohttp.ClientTimeout(total=60)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(RAG_QUERY_URL, json=payload) as response:
+                response_status = response.status
+                response_text = await response.text()
+                
+                if response_status == 200:
+                    try:
+                        response_data = json.loads(response_text)
+                        result = response_data.get('data', response_text)
+                        print(f"✅ 查询完成，结果长度: {len(str(result))}")
+                        
+                        return QueryResponse(
+                            status="success",
+                            result=str(result) if result else "未找到相关信息",
+                            mode=request.mode,
+                            timestamp=datetime.now()
+                        )
+                    except json.JSONDecodeError:
+                        # 如果响应不是JSON，直接返回文本
+                        print(f"✅ 查询完成，返回文本结果")
+                        return QueryResponse(
+                            status="success",
+                            result=response_text if response_text else "未找到相关信息",
+                            mode=request.mode,
+                            timestamp=datetime.now()
+                        )
+                else:
+                    error_msg = f"RAG查询失败: HTTP {response_status} - {response_text}"
+                    print(f"❌ {error_msg}")
+                    raise HTTPException(status_code=500, detail=error_msg)
+                    
+    except aiohttp.ClientError as e:
+        error_msg = f"连接RAG服务失败: {str(e)}"
+        print(f"❌ {error_msg}")
+        raise HTTPException(status_code=503, detail=error_msg)
+    except Exception as e:
+        print(f"❌ 查询异常: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"查询失败: {str(e)}")
+
+# 🔧 调试API接口
+@app.get("/api/rag-service-status")
+async def detailed_rag_service_status():
+    """详细的RAG服务状态检查"""
+    results = {}
+    
+    # 测试不同的端点
+    test_endpoints = [
+        {"name": "health_check", "url": f"{RAG_SERVICE_URL}/health", "method": "GET"},
+        {"name": "query_test", "url": f"{RAG_SERVICE_URL}/api/query", "method": "POST", 
+         "payload": {"query": "测试", "mode": "naive"}},
+    ]
+    
+    for endpoint in test_endpoints:
+        try:
+            timeout = aiohttp.ClientTimeout(total=10)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                if endpoint["method"] == "GET":
+                    async with session.get(endpoint["url"]) as response:
+                        status = response.status
+                        data = await response.text()
+                        results[endpoint["name"]] = {
+                            "url": endpoint["url"],
+                            "status": status,
+                            "response": data[:300],
+                            "success": status == 200
+                        }
+                else:  # POST
+                    async with session.post(endpoint["url"], json=endpoint["payload"]) as response:
+                        status = response.status
+                        data = await response.text()
+                        results[endpoint["name"]] = {
+                            "url": endpoint["url"],
+                            "status": status,
+                            "response": data[:300],
+                            "success": status == 200,
+                            "payload": endpoint["payload"]
+                        }
+        except Exception as e:
+            results[endpoint["name"]] = {
+                "url": endpoint["url"],
+                "error": str(e),
+                "success": False
+            }
+    
+    return {
+        "rag_service_url": RAG_SERVICE_URL,
+        "test_results": results,
+        "summary": {
+            "total_tests": len(test_endpoints),
+            "successful_tests": sum(1 for r in results.values() if r.get("success", False)),
+            "all_tests_passed": all(r.get("success", False) for r in results.values())
+        }
+    }
+
+@app.post("/api/manual-test-insert")
+async def manual_test_insert():
+    """手动测试RAG插入功能"""
+    test_content = f"""手动测试文档 - {datetime.now().isoformat()}
+    
+    这是一个用于测试RAG系统插入功能的文档。
+    
+    关键信息：
+    1. 测试时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+    2. 测试关键词: 蓝天白云晴朗天气
+    3. 特殊标识: MANUAL_TEST_DOC_12345
+    
+    如果你能通过查询找到这些内容，说明RAG插入功能正常工作。
+    """
+    
+    try:
+        print("🧪 开始手动测试RAG插入功能...")
+        
+        # 检查RAG服务状态
+        rag_healthy, rag_info = await check_rag_service_health()
+        if not rag_healthy:
+            return {
+                "status": "error",
+                "error": f"RAG服务不可用: {rag_info}"
+            }
+        
+        # 测试插入
+        payload = {"text": test_content}
+        
+        timeout = aiohttp.ClientTimeout(total=60)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(RAG_INSERT_URL, json=payload) as response:
+                response_status = response.status
+                response_text = await response.text()
+                
+                insert_result = {
+                    "status": response_status,
+                    "response": response_text[:500],
+                    "success": response_status == 200
+                }
+                
+                if response_status == 200:
+                    print("✅ 手动插入测试成功")
+                    
+                    # 等待索引完成
+                    await asyncio.sleep(3)
+                    
+                    # 测试查询
+                    query_result = await test_query_after_insert("蓝天白云晴朗天气")
+                    
+                    return {
+                        "status": "success",
+                        "test_content_length": len(test_content),
+                        "insert_result": insert_result,
+                        "query_result": query_result
+                    }
+                else:
+                    print(f"❌ 手动插入测试失败: {response_status} - {response_text}")
+                    return {
+                        "status": "error", 
+                        "insert_result": insert_result
+                    }
+        
+    except Exception as e:
+        print(f"❌ 手动测试失败: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+async def test_query_after_insert(query_text: str):
+    """插入后的查询测试"""
+    try:
+        payload = {"query": query_text, "mode": "naive"}
+        
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(RAG_QUERY_URL, json=payload) as response:
+                response_status = response.status
+                response_text = await response.text()
+                
+                return {
+                    "query": query_text,
+                    "status": response_status,
+                    "response": response_text[:500],
+                    "success": response_status == 200,
+                    "found_expected_content": "蓝天白云" in response_text or "MANUAL_TEST" in response_text
+                }
+    except Exception as e:
+        return {
+            "query": query_text,
+            "error": str(e),
+            "success": False
+        }
+
+if __name__ == "__main__":
+    print("🚀 启动RAG Knowledge Management Web Interface")
+    print("📍 访问地址: http://localhost:4000") 
+    print("🔗 RAG服务地址: http://localhost:8001")
+    print("💡 请确保先启动 rag.py 服务: python rag.py")
+    uvicorn.run(app, host="0.0.0.0", port=4000)

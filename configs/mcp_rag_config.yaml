@@ -1,0 +1,14 @@
+service_name: "mcp-rag-service"
+environment: "mcp-env"
+port: 8002
+description: "RAG专家MCP服务器"
+target_service: "http://localhost:8001"
+memory_limit: "512MB"
+cpu_limit: 0.5
+health_endpoint: "/health"
+startup_timeout: 20
+tools:
+  - hybrid_search
+  - global_search
+  - local_search
+  - insert_document

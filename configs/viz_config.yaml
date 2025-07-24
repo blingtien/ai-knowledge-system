@@ -1,0 +1,7 @@
+service_name: "viz-service"
+environment: "viz-env"
+port: 8003
+memory_limit: "1GB"
+cpu_limit: 1
+health_endpoint: "/health"
+startup_timeout: 30

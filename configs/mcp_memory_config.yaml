@@ -1,0 +1,14 @@
+service_name: "mcp-memory-service"  
+environment: "mcp-env"
+port: 8004
+description: "记忆专家MCP服务器"
+target_service: "http://localhost:8765"
+memory_limit: "512MB"
+cpu_limit: 0.5
+health_endpoint: "/health"
+startup_timeout: 20
+tools:
+  - add_memories
+  - search_memory
+  - list_memories
+  - delete_memory

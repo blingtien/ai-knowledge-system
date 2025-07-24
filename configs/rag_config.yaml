@@ -1,0 +1,9 @@
+service_name: "rag-service"
+environment: "rag-env"
+port: 8001
+working_dir: "./data/rag_storage"
+api_key_env: "OPENAI_API_KEY"
+memory_limit: "3.5GB"
+cpu_limit: 2
+health_endpoint: "/health"
+startup_timeout: 60

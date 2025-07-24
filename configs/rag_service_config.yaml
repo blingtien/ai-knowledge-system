@@ -1,0 +1,21 @@
+service_name: "rag-service"
+environment: "rag-env"
+port: 8001
+description: "RAG文档检索服务 - Qwen3-Embedding预加载版"
+memory_limit: "7.5GB"        # 增加到7.5GB支持Qwen3-Embedding (2.4GB) + RAG (4.5GB) + 缓冲
+cpu_limit: 3                 # 保持3个CPU核心
+startup_timeout: 60          # 增加到60秒，因为需要加载embedding模型
+health_endpoint: "/health"
+embedding_config:
+  model_name: "Qwen/Qwen3-Embedding-0.6B"  # 预加载的embedding模型
+  model_type: "local"                       # 本地模型类型
+  preload_on_startup: true                  # 启动时预加载
+  embedding_dim: 1024                       # embedding维度
+  max_token_size: 32768                     # 最大token长度
+model_config:
+  enable_large_models: true  # 现在可以支持更大模型
+  max_context_length: 32768  # 支持更长上下文
+  batch_size: 8              # 提升批处理大小
+llm_config:
+  api_base_url: "https://api.deepseek.com/v1"  # DeepSeek API
+  model_name: "deepseek-chat"                   # DeepSeek模型

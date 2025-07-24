@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG知识管理系统</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    
+    <!-- Element Plus CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+    
+    <!-- Vue 3 -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    
+    <!-- Element Plus JS -->
+    <script src="https://unpkg.com/element-plus/dist/index.full.js"></script>
+    
+    <!-- 自定义样式 -->
+    <link rel="stylesheet" href="/static/css/styles.css">
+    
+    <!-- 进度显示优化样式 -->
+    <style>
+        .progress-message {
+            margin-top: 4px;
+            color: #909399;
+            font-size: 12px;
+            line-height: 1.2;
+            word-break: break-all;
+        }
+        
+        .error-message {
+            margin-top: 4px;
+            font-size: 12px;
+            line-height: 1.2;
+            word-break: break-all;
+        }
+        
+        /* 进度条动画 */
+        .el-progress__text {
+            font-size: 12px !important;
+        }
+        
+        .el-progress-bar__inner {
+            transition: width 0.6s ease;
+        }
+        
+        /* 文件操作按钮组 */
+        .file-operations {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        
+        /* 状态标签样式 */
+        .status-tag {
+            min-width: 70px;
+            text-align: center;
+        }
+        
+        /* 查询状态动画 */
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        .query-status {
+            margin-left: 16px;
+            color: #409EFF;
+            font-size: 14px;
+            animation: pulse 1.5s infinite;
+        }
+        
+        /* 文件表格优化 */
+        .el-table .cell {
+            word-break: break-word;
+        }
+        
+        /* 知识库卡片悬停效果 */
+        .kb-card {
+            transition: all 0.3s;
+        }
+        
+        .kb-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <el-container class="layout-container">
+            <!-- 头部 -->
+            <el-header class="header">
+                <div class="header-content">
+                    <h1>🧠 RAG知识管理系统</h1>
+                    <div class="header-status">
+                        <el-tag :type="systemStatus.type" size="small">
+                            {{ systemStatus.text }}
+                        </el-tag>
+                    </div>
+                </div>
+            </el-header>
+            
+            <!-- 主内容区 -->
+            <el-container>
+                <!-- 侧边栏 -->
+                <el-aside width="300px" class="sidebar">
+                    <el-menu 
+                        :default-active="activeTab" 
+                        @select="handleMenuSelect"
+                        class="sidebar-menu">
+                        <el-menu-item index="knowledge-base">
+                            <span>知识库管理</span>
+                        </el-menu-item>
+                        <el-menu-item index="file-upload">
+                            <span>文件上传</span>
+                        </el-menu-item>
+                        <el-menu-item index="file-list">
+                            <span>文件列表</span>
+                        </el-menu-item>
+                        <el-menu-item index="query">
+                            <span>知识查询</span>
+                        </el-menu-item>
+                    </el-menu>
+                </el-aside>
+                
+                <!-- 主内容 -->
+                <el-main class="main-content">
+                    
+                    <!-- 知识库管理 -->
+                    <div v-if="activeTab === 'knowledge-base'" class="tab-content">
+                        <div class="section-header">
+                            <h2>📚 知识库管理</h2>
+                            <el-button type="primary" @click="showCreateKBDialog">
+                                新建知识库
+                            </el-button>
+                        </div>
+                        
+                        <el-row :gutter="20">
+                            <el-col :span="8" v-for="kb in knowledgeBases" :key="kb.name">
+                                <el-card class="kb-card">
+                                    <template #header>
+                                        <div class="card-header">
+                                            <span>{{ kb.name }}</span>
+                                        </div>
+                                    </template>
+                                    <p>{{ kb.description || '暂无描述' }}</p>
+                                    <div class="kb-stats">
+                                        <el-tag size="small">{{ kb.file_count }} 个文件</el-tag>
+                                        <el-tag size="small" type="info">
+                                            {{ formatDate(kb.created_time) }}
+                                        </el-tag>
+                                    </div>
+                                </el-card>
+                            </el-col>
+                        </el-row>
+                    </div>
+                    
+                    <!-- 文件上传 -->
+                    <div v-if="activeTab === 'file-upload'" class="tab-content">
+                        <div class="section-header">
+                            <h2>📤 文件上传</h2>
+                        </div>
+                        
+                        <el-form :model="uploadForm" label-width="120px" class="upload-form">
+                            <el-form-item label="选择知识库">
+                                <el-select v-model="uploadForm.knowledgeBase" placeholder="请选择知识库">
+                                    <el-option 
+                                        v-for="kb in knowledgeBases" 
+                                        :key="kb.name"
+                                        :label="kb.name" 
+                                        :value="kb.name">
+                                    </el-option>
+                                </el-select>
+                            </el-form-item>
+                            
+                            <el-form-item label="选择文件">
+                                <el-upload
+                                    ref="uploadRef"
+                                    :auto-upload="false"
+                                    :multiple="true"
+                                    :file-list="fileList"
+                                    :on-change="handleFileChange"
+                                    drag
+                                    class="upload-demo">
+                                    <div class="el-icon--upload">📁</div>
+                                    <div class="el-upload__text">
+                                        将文件拖到此处，或<em>点击上传</em>
+                                    </div>
+                                    <template #tip>
+                                        <div class="el-upload__tip">
+                                            支持 PDF、TXT、MD 等格式文件
+                                        </div>
+                                    </template>
+                                </el-upload>
+                            </el-form-item>
+                            
+                            <el-form-item>
+                                <el-button 
+                                    type="primary" 
+                                    @click="uploadFiles"
+                                    :loading="uploading"
+                                    :disabled="!uploadForm.knowledgeBase || fileList.length === 0">
+                                    上传文件
+                                </el-button>
+                                <el-button @click="clearFiles">清空列表</el-button>
+                            </el-form-item>
+                        </el-form>
+                    </div>
+                    
+                    <!-- 文件列表 -->
+                    <div v-if="activeTab === 'file-list'" class="tab-content">
+                        <div class="section-header">
+                            <h2>📋 文件列表</h2>
+                            <div>
+                                <el-select v-model="selectedKB" placeholder="筛选知识库" @change="loadFiles" style="margin-right: 12px;">
+                                    <el-option label="全部" value=""></el-option>
+                                    <el-option 
+                                        v-for="kb in knowledgeBases" 
+                                        :key="kb.name"
+                                        :label="kb.name" 
+                                        :value="kb.name">
+                                    </el-option>
+                                </el-select>
+                                <!-- 调试按钮组 -->
+                                <el-button size="small" @click="resetAllFileStatus" type="warning">
+                                    重置所有状态
+                                </el-button>
+                                <el-button size="small" @click="loadFiles" type="info">
+                                    刷新列表
+                                </el-button>
+                            </div>
+                        </div>
+                        
+                        <el-table :data="files" style="width: 100%" v-loading="filesLoading">
+                            <el-table-column prop="filename" label="文件名" min-width="200"></el-table-column>
+                            <el-table-column prop="knowledge_base" label="知识库" width="120"></el-table-column>
+                            <el-table-column prop="size" label="大小" width="100">
+                                <template #default="scope">
+                                    {{ formatFileSize(scope.row.size) }}
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="status" label="状态" width="100">
+                                <template #default="scope">
+                                    <el-tag 
+                                        :type="getStatusType(scope.row.status)"
+                                        class="status-tag">
+                                        {{ getStatusText(scope.row.status) }}
+                                    </el-tag>
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="progress" label="进度" min-width="300">
+                                <template #default="scope">
+                                    <div v-if="scope.row.status === 'processing'">
+                                        <!-- 进度条 -->
+                                        <el-progress 
+                                            :percentage="scope.row.progress || 0"
+                                            :stroke-width="8"
+                                            :color="getProgressColor(scope.row.progress)">
+                                        </el-progress>
+                                        <!-- 进度消息 -->
+                                        <div v-if="scope.row.message" class="progress-message">
+                                            <small>{{ scope.row.message }}</small>
+                                        </div>
+                                    </div>
+                                    <div v-else-if="scope.row.status === 'completed'">
+                                        <el-progress 
+                                            :percentage="100"
+                                            :stroke-width="6"
+                                            status="success">
+                                        </el-progress>
+                                    </div>
+                                    <div v-else-if="scope.row.status === 'error'">
+                                        <el-progress 
+                                            :percentage="scope.row.progress || 0"
+                                            :stroke-width="6"
+                                            status="exception">
+                                        </el-progress>
+                                        <div v-if="scope.row.error" class="error-message">
+                                            <small style="color: #F56C6C;">{{ scope.row.error }}</small>
+                                        </div>
+                                    </div>
+                                    <span v-else>{{ scope.row.progress }}%</span>
+                                </template>
+                            </el-table-column>
+                            <el-table-column label="操作" width="260" fixed="right">
+                                <template #default="scope">
+                                    <div class="file-operations">
+                                        <el-button 
+                                            v-if="scope.row.status === 'uploaded'"
+                                            type="primary" 
+                                            size="small"
+                                            @click="startParsing(scope.row)">
+                                            开始解析
+                                        </el-button>
+                                        <el-button 
+                                            v-else-if="scope.row.status === 'processing'"
+                                            type="info" 
+                                            size="small"
+                                            :loading="true">
+                                            解析中
+                                        </el-button>
+                                        <el-button 
+                                            v-else-if="scope.row.status === 'completed'"
+                                            type="success" 
+                                            size="small"
+                                            disabled>
+                                            已完成
+                                        </el-button>
+                                        <el-button 
+                                            v-else-if="scope.row.status === 'error'"
+                                            type="danger" 
+                                            size="small"
+                                            @click="startParsing(scope.row)">
+                                            重新解析
+                                        </el-button>
+                                        
+                                        <!-- 调试重置按钮 -->
+                                        <el-button 
+                                            v-if="scope.row.status !== 'uploaded'"
+                                            size="small" 
+                                            type="warning" 
+                                            plain
+                                            @click="resetFileStatus(scope.row)"
+                                            title="重置状态为已上传">
+                                            重置
+                                        </el-button>
+                                        
+                                        <!-- 删除按钮 -->
+                                        <el-button 
+                                            size="small" 
+                                            type="danger" 
+                                            plain
+                                            @click="deleteFile(scope.row)"
+                                            title="删除文件">
+                                            删除
+                                        </el-button>
+                                    </div>
+                                </template>
+                            </el-table-column>
+                        </el-table>
+                    </div>
+                    
+                    <!-- 知识查询 -->
+                    <div v-if="activeTab === 'query'" class="tab-content">
+                        <div class="section-header">
+                            <h2>🔍 知识查询</h2>
+                        </div>
+                        
+                        <el-form :model="queryForm" class="query-form">
+                            <el-form-item label="查询模式">
+                                <el-radio-group v-model="queryForm.mode">
+                                    <el-radio-button value="naive">快速检索</el-radio-button>
+                                    <el-radio-button value="global">全局分析</el-radio-button>
+                                    <el-radio-button value="hybrid">智能融合</el-radio-button>
+                                    <el-radio-button value="local">深度分析</el-radio-button>
+                                </el-radio-group>
+                                <div v-if="queryStatus" class="query-status">
+                                    {{ queryStatus }}
+                                </div>
+                            </el-form-item>
+                            
+                            <el-form-item>
+                                <el-alert 
+                                    :title="getModeDescription(queryForm.mode)" 
+                                    type="info" 
+                                    :closable="false"
+                                    show-icon>
+                                    <template #default>
+                                        <span>预计耗时: {{ getEstimatedTime(queryForm.mode) }}</span>
+                                    </template>
+                                </el-alert>
+                            </el-form-item>
+                            
+                            <el-form-item label="查询问题">
+                                <el-input
+                                    v-model="queryForm.query"
+                                    type="textarea"
+                                    :rows="3"
+                                    placeholder="请输入您的问题..."
+                                    @keyup.ctrl.enter="performQuery">
+                                </el-input>
+                            </el-form-item>
+                            
+                            <el-form-item>
+                                <el-button 
+                                    type="primary" 
+                                    @click="performQuery"
+                                    :loading="querying"
+                                    :disabled="!queryForm.query.trim()">
+                                    查询
+                                </el-button>
+                                <el-button @click="clearQuery">清空</el-button>
+                            </el-form-item>
+                        </el-form>
+                        
+                        <!-- 查询结果 -->
+                        <div v-if="queryResult" class="query-result">
+                            <h3>📋 查询结果</h3>
+                            <el-card>
+                                <div class="result-meta">
+                                    <el-tag size="small">{{ getModeDisplayName(queryResult.mode) }}</el-tag>
+                                    <el-tag size="small" type="info">
+                                        {{ formatDate(queryResult.timestamp) }}
+                                    </el-tag>
+                                </div>
+                                <div class="result-content" v-html="formatResult(queryResult.result)"></div>
+                            </el-card>
+                        </div>
+                        
+                        <!-- 查询历史 -->
+                        <div v-if="queryHistory.length > 0" class="query-history">
+                            <h3>📚 查询历史</h3>
+                            <el-collapse>
+                                <el-collapse-item 
+                                    v-for="(item, index) in queryHistory" 
+                                    :key="index"
+                                    :title="item.query.substring(0, 50) + (item.query.length > 50 ? '...' : '')">
+                                    <div class="history-item">
+                                        <div class="history-meta">
+                                            <el-tag size="small">{{ getModeDisplayName(item.mode) }}</el-tag>
+                                            <el-tag size="small" type="info">
+                                                {{ formatDate(item.timestamp) }}
+                                            </el-tag>
+                                        </div>
+                                        <div class="history-content" v-html="formatResult(item.result)"></div>
+                                    </div>
+                                </el-collapse-item>
+                            </el-collapse>
+                        </div>
+                    </div>
+                </el-main>
+            </el-container>
+        </el-container>
+        
+        <!-- 创建知识库对话框 -->
+        <el-dialog v-model="createKBDialog" title="新建知识库" width="500px">
+            <el-form :model="newKB" label-width="100px">
+                <el-form-item label="知识库名称" required>
+                    <el-input v-model="newKB.name" placeholder="请输入知识库名称"></el-input>
+                </el-form-item>
+                <el-form-item label="描述">
+                    <el-input 
+                        v-model="newKB.description" 
+                        type="textarea" 
+                        :rows="3"
+                        placeholder="请输入知识库描述">
+                    </el-input>
+                </el-form-item>
+            </el-form>
+            <template #footer>
+                <span class="dialog-footer">
+                    <el-button @click="createKBDialog = false">取消</el-button>
+                    <el-button type="primary" @click="createKnowledgeBase">确定</el-button>
+                </span>
+            </template>
+        </el-dialog>
+    </div>
+    
+    <!-- Vue应用脚本 -->
+    <script src="/static/js/app.js?v=20250724"></script>
+</body>
+</html>

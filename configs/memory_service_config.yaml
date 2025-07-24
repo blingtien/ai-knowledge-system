@@ -1,0 +1,12 @@
+service_name: "memory-service"
+environment: "memory-env"
+port: 8765
+description: "OpenMemory记忆服务 - 10GB优化版"
+memory_limit: "2GB"          # 从1.5GB提升到2GB
+cpu_limit: 2                 # 保持2核心
+startup_timeout: 20
+health_endpoint: "/health"
+performance_config:
+  enable_advanced_indexing: true    # 启用高级索引
+  memory_cache_size: "1GB"          # 更大的内存缓存
+  max_concurrent_operations: 10     # 提升并发处理
