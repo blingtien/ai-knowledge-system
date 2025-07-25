@@ -99,7 +99,6 @@ models/
 
 # Embedded git repositories (submodules)
 dify/
-rag-anything/
 
 # Large files that shouldn't be in git
 *.tar.xz
